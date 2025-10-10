@@ -17,42 +17,60 @@ DB_PASSWORD=your_db_password
 # Server Configuration
 PORT=5001
 
-# Gmail SMTP Configuration (for sending emails)
-GMAIL_USER=your-email@gmail.com
-GMAIL_PASS=your-app-password-here
-GMAIL_FROM=your-email@gmail.com
+# SendGrid Email Configuration (works on Render - no SMTP blocking!)
+SENDGRID_API_KEY=your-sendgrid-api-key-here
+SENDGRID_FROM_EMAIL=noreply@yourdomain.com
 
 # Email Recipient (where form submissions will be sent)
 NOTIFY_EMAIL=recipient@example.com
 ```
 
-## Step 2: Get a Gmail App Password
+## Step 2: Get a SendGrid API Key (FREE - 100 emails/day)
 
-1. Go to your Google Account: https://myaccount.google.com/
-2. Click on "Security" in the left sidebar
-3. Enable "2-Step Verification" if not already enabled
-4. After enabling 2FA, go back to Security settings
-5. Search for "App passwords" or visit: https://myaccount.google.com/apppasswords
-6. Select "Mail" and "Other (Custom name)" - name it "HospiceConnect"
-7. Click "Generate"
-8. Copy the 16-character password (it will look like: `abcd efgh ijkl mnop`)
+SendGrid uses HTTP/HTTPS instead of SMTP, so it works perfectly on Render and other cloud platforms!
 
-## Step 3: Update your `.env` file
+1. Go to SendGrid: https://signup.sendgrid.com/
+2. Sign up for a FREE account (no credit card required for 100 emails/day)
+3. Verify your email address
+4. Once logged in, go to: **Settings → API Keys** (https://app.sendgrid.com/settings/api_keys)
+5. Click "Create API Key"
+6. Name it "HospiceConnect Backend"
+7. Select "Full Access" (or at least "Mail Send" access)
+8. Click "Create & View"
+9. **IMPORTANT**: Copy the API key immediately (you won't be able to see it again!)
+   - It will look like: `SG.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`
+
+## Step 3: Verify a Sender Email
+
+SendGrid requires you to verify the email address you'll send FROM:
+
+### Option A: Single Sender Verification (Easiest - FREE)
+1. Go to: **Settings → Sender Authentication → Single Sender Verification**
+2. Click "Create New Sender"
+3. Fill in your details (use your real email, e.g., `yourname@gmail.com`)
+4. Check your email and click the verification link
+5. Use this verified email as `SENDGRID_FROM_EMAIL` in your `.env`
+
+### Option B: Domain Authentication (Better for production)
+1. If you own a domain, you can authenticate your entire domain
+2. Go to: **Settings → Sender Authentication → Domain Authentication**
+3. Follow the DNS setup instructions
+
+## Step 4: Update your `.env` file
 
 Replace the placeholders in your `.env` file:
 
 ```env
 # Example configuration:
-GMAIL_USER=youremail@gmail.com
-GMAIL_PASS=abcdefghijklmnop  # (remove spaces from the app password)
-GMAIL_FROM=youremail@gmail.com
+SENDGRID_API_KEY=SG.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+SENDGRID_FROM_EMAIL=yourname@gmail.com  # Must be verified in SendGrid
 NOTIFY_EMAIL=recipient@example.com  # The email address that will receive form submissions
 ```
 
-## Step 4: Restart your backend server
+## Step 5: Install dependencies and restart
 
 ```bash
-cd backend
+npm install
 npm start
 ```
 
@@ -74,24 +92,33 @@ When a user submits the form at Step 4, the backend will:
 
 You can test if email is working by visiting:
 ```
-http://localhost:5001/api/debug/email
+http://localhost:4001/api/debug/email
 ```
 
-This will send a test email to verify your SMTP configuration.
+This will send a test email to verify your SendGrid configuration.
 
 ## Troubleshooting
 
-**Issue**: "Email transporter not configured"
-- **Solution**: Make sure `GMAIL_USER` and `GMAIL_PASS` are set in `.env`
+**Issue**: "Email service not configured"
+- **Solution**: Make sure `SENDGRID_API_KEY` is set in `.env`
 
-**Issue**: "SMTP verification failed"
-- **Solution**: 
-  - Ensure 2-Factor Authentication is enabled on your Google account
-  - Use an App Password, not your regular Gmail password
-  - Remove any spaces from the App Password
+**Issue**: "No sender email configured"
+- **Solution**: Set `SENDGRID_FROM_EMAIL` in `.env` with a verified email address
 
 **Issue**: "No recipient configured"
-- **Solution**: Set either `NOTIFY_EMAIL` or `RECIPIENT_EMAIL` in `.env`
+- **Solution**: Set `NOTIFY_EMAIL` or `RECIPIENT_EMAIL` in `.env`
+
+**Issue**: "The from address does not match a verified Sender Identity"
+- **Solution**: 
+  - Go to SendGrid → Settings → Sender Authentication
+  - Verify the email address you're using as `SENDGRID_FROM_EMAIL`
+  - Wait for the verification email and click the link
+
+**Issue**: "Forbidden" or authentication error
+- **Solution**: 
+  - Check that your API key is correct
+  - Make sure the API key has "Mail Send" permission
+  - Regenerate a new API key if needed
 
 ## Email Preview
 
@@ -122,9 +149,36 @@ Preferences:
 - Agreed to terms: Yes
 ```
 
+## Deploying to Render
+
+When deploying to Render, add these environment variables in your Render dashboard:
+
+1. Go to your Render service → **Environment**
+2. Add the following environment variables:
+   ```
+   SENDGRID_API_KEY=SG.xxxxxxxxxx...
+   SENDGRID_FROM_EMAIL=yourname@gmail.com
+   NOTIFY_EMAIL=recipient@example.com
+   DATABASE_URL=postgresql://... (Render provides this automatically)
+   ```
+3. Click "Save Changes"
+4. Your service will automatically redeploy
+
+## Why SendGrid instead of Gmail SMTP?
+
+**Render blocks SMTP connections** (ports 465, 587) for security reasons, causing connection timeouts with Gmail SMTP. SendGrid uses HTTP/HTTPS (port 443) which works perfectly on Render and other cloud platforms.
+
+**Benefits of SendGrid:**
+- ✅ Works on Render, Heroku, Vercel, etc.
+- ✅ No SMTP port blocking issues
+- ✅ Free tier: 100 emails/day
+- ✅ Better deliverability
+- ✅ Email tracking and analytics
+
 ## Security Notes
 
 ⚠️ **Important**: Never commit your `.env` file to Git!
 - The `.env` file should already be in `.gitignore`
 - Only commit `.env.example` as a template for others
+- Keep your SendGrid API key secret!
 

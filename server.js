@@ -1,7 +1,7 @@
 const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
-const nodemailer = require('nodemailer');
+const sgMail = require('@sendgrid/mail');
 require('dotenv').config();
 
 const app = express();
@@ -29,28 +29,14 @@ const pool = new Pool(
       }
 );
 
-// Email transporter (Gmail via SMTP - recommend using an App Password)
-let mailTransporter = null;
-if (process.env.GMAIL_USER && process.env.GMAIL_PASS) {
-  mailTransporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
-    auth: {
-      user: process.env.GMAIL_USER,
-      pass: process.env.GMAIL_PASS,
-    },
-  });
-
-  mailTransporter
-    .verify()
-    .then(() => {
-      console.log('Gmail SMTP: ready to send emails as', process.env.GMAIL_USER);
-    })
-    .catch((err) => {
-      console.error('Gmail SMTP verification failed:', err?.message || err);
-      console.error('Hint: Ensure 2FA is ON and GMAIL_PASS is a Gmail App Password');
-    });
+// Email configuration (SendGrid API - works on Render, no SMTP issues)
+let emailConfigured = false;
+if (process.env.SENDGRID_API_KEY) {
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+  emailConfigured = true;
+  console.log('✅ SendGrid email service configured');
+} else {
+  console.warn('⚠️  SENDGRID_API_KEY not set - emails will not be sent');
 }
 
 // Test database connection
@@ -97,10 +83,13 @@ app.post('/api/submissions', async (req, res) => {
     let emailSent = false;
     let emailError = null;
     try {
-      if (!mailTransporter) throw new Error('Email transporter not configured. Set GMAIL_USER and GMAIL_PASS.');
+      if (!emailConfigured) throw new Error('Email service not configured. Set SENDGRID_API_KEY.');
 
       const recipient = process.env.NOTIFY_EMAIL || process.env.RECIPIENT_EMAIL;
       if (!recipient) throw new Error('No recipient configured. Set NOTIFY_EMAIL or RECIPIENT_EMAIL.');
+
+      const fromEmail = process.env.SENDGRID_FROM_EMAIL;
+      if (!fromEmail) throw new Error('No sender email configured. Set SENDGRID_FROM_EMAIL.');
 
       const submissionId = result.rows[0].id;
       const subject = `New HospiceConnect submission #${submissionId}`;
@@ -151,14 +140,17 @@ app.post('/api/submissions', async (req, res) => {
         </ul>
       `;
 
-      await mailTransporter.sendMail({
-        from: process.env.GMAIL_FROM || process.env.GMAIL_USER,
+      const msg = {
         to: recipient,
+        from: fromEmail,
         subject,
         text: plainText,
         html,
-      });
+      };
+
+      await sgMail.send(msg);
       emailSent = true;
+      console.log(`✅ Email notification sent to ${recipient}`);
     } catch (mailErr) {
       emailError = mailErr?.message || String(mailErr);
       console.error('Error sending email notification:', mailErr);
@@ -191,8 +183,8 @@ app.get('/api/admin/submissions', async (req, res) => {
 // Debug endpoint to test email sending
 app.get('/api/debug/email', async (req, res) => {
   try {
-    if (!mailTransporter) {
-      return res.status(400).json({ ok: false, error: 'Email transporter not configured. Set GMAIL_USER and GMAIL_PASS.' });
+    if (!emailConfigured) {
+      return res.status(400).json({ ok: false, error: 'Email service not configured. Set SENDGRID_API_KEY.' });
     }
 
     const recipient = process.env.NOTIFY_EMAIL || process.env.RECIPIENT_EMAIL;
@@ -200,14 +192,20 @@ app.get('/api/debug/email', async (req, res) => {
       return res.status(400).json({ ok: false, error: 'No recipient configured. Set NOTIFY_EMAIL or RECIPIENT_EMAIL.' });
     }
 
-    await mailTransporter.verify();
-    await mailTransporter.sendMail({
-      from: process.env.GMAIL_FROM || process.env.GMAIL_USER,
-      to: recipient,
-      subject: 'HospiceConnect debug email',
-      text: 'This is a test email to verify SMTP configuration.'
-    });
+    const fromEmail = process.env.SENDGRID_FROM_EMAIL;
+    if (!fromEmail) {
+      return res.status(400).json({ ok: false, error: 'No sender email configured. Set SENDGRID_FROM_EMAIL.' });
+    }
 
+    const msg = {
+      to: recipient,
+      from: fromEmail,
+      subject: 'HospiceConnect debug email',
+      text: 'This is a test email to verify SendGrid configuration.',
+      html: '<p>This is a test email to verify SendGrid configuration.</p>'
+    };
+
+    await sgMail.send(msg);
     res.json({ ok: true, message: 'Debug email sent successfully' });
   } catch (err) {
     console.error('Debug email error:', err);
