@@ -1,14 +1,8 @@
-const sgMail = require('@sendgrid/mail');
 const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
+const sgMail = require('@sendgrid/mail');
 require('dotenv').config();
-
-if (process.env.SENDGRID_API_KEY) {
-  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-  console.log('✅ SendGrid mail service configured');
-}
-
 
 const app = express();
 const port = process.env.PORT || 4002;
@@ -16,6 +10,17 @@ const port = process.env.PORT || 4002;
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Configure SendGrid
+let emailConfigured = false;
+if (process.env.SENDGRID_API_KEY) {
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+  emailConfigured = true;
+  console.log('✅ SendGrid email service configured');
+} else {
+  console.warn('⚠️ SENDGRID_API_KEY not set - emails will not be sent');
+  console.warn('   Get a free SendGrid key at: https://signup.sendgrid.com/');
+}
 
 // Database connection
 const pool = new Pool(
@@ -35,90 +40,12 @@ const pool = new Pool(
       }
 );
 
-<<<<<<< HEAD
-// Email transporter (Gmail via SMTP - optimized for cloud deployment)
-let mailTransporter = null;
-if (process.env.GMAIL_USER && process.env.GMAIL_PASS) {
-  // Try multiple SMTP configurations for better cloud compatibility
-  const smtpConfigs = [
-    {
-      host: 'smtp.gmail.com',
-      port: 587,
-      secure: false, // Use STARTTLS
-      auth: {
-        user: process.env.GMAIL_USER,
-        pass: process.env.GMAIL_PASS,
-      },
-      tls: {
-        rejectUnauthorized: false,
-        ciphers: 'SSLv3'
-      },
-      connectionTimeout: 60000, // 60 seconds
-      greetingTimeout: 30000,   // 30 seconds
-      socketTimeout: 60000,     // 60 seconds
-    },
-    {
-      host: 'smtp.gmail.com',
-      port: 465,
-      secure: true, // Use SSL
-      auth: {
-        user: process.env.GMAIL_USER,
-        pass: process.env.GMAIL_PASS,
-      },
-      tls: {
-        rejectUnauthorized: false,
-        ciphers: 'SSLv3'
-      },
-      connectionTimeout: 60000,
-      greetingTimeout: 30000,
-      socketTimeout: 60000,
-    }
-  ];
-
-  // Try to create transporter with the first config
-  mailTransporter = nodemailer.createTransport(smtpConfigs[0]);
-
-  // Verify connection with retry logic
-  const verifyConnection = async (configIndex = 0) => {
-    try {
-      await mailTransporter.verify();
-      console.log('Gmail SMTP: ready to send emails as', process.env.GMAIL_USER);
-    } catch (err) {
-      console.error(`Gmail SMTP verification failed (config ${configIndex + 1}):`, err?.message || err);
-      
-      // Try alternative configuration if available
-      if (configIndex < smtpConfigs.length - 1) {
-        console.log('Trying alternative SMTP configuration...');
-        mailTransporter = nodemailer.createTransport(smtpConfigs[configIndex + 1]);
-        await verifyConnection(configIndex + 1);
-      } else {
-        console.error('All SMTP configurations failed');
-        console.error('Hint: Ensure 2FA is ON and GMAIL_PASS is a Gmail App Password');
-        console.error('Hint: Check if Render allows SMTP connections on ports 587/465');
-      }
-    }
-  };
-
-  verifyConnection();
-=======
-// Email configuration (SendGrid API - works on Render, no SMTP blocking!)
-let emailConfigured = false;
-if (process.env.SENDGRID_API_KEY) {
-  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-  emailConfigured = true;
-  console.log('✅ SendGrid email service configured');
-} else {
-  console.warn('⚠️  SENDGRID_API_KEY not set - emails will not be sent');
-  console.warn('   Get a free SendGrid key at: https://signup.sendgrid.com/');
->>>>>>> 334879f10285bd09eddb04993fdba4d2c283a779
-}
-
 // Test database connection
 pool.connect((err, client, release) => {
   if (err) {
-    return console.error('Error acquiring client', err.stack);
+    return console.error('❌ Error acquiring client', err.stack);
   }
-  console.log('Connected to PostgreSQL database');
+  console.log('✅ Connected to PostgreSQL database');
   release();
 });
 
@@ -152,135 +79,18 @@ app.post('/api/submissions', async (req, res) => {
     ];
 
     const result = await pool.query(query, values);
+    const submissionId = result.rows[0].id;
 
-    // Attempt to send email notification (non-blocking with retry logic)
-    let emailSent = false;
-    let emailError = null;
-    
-    const sendEmailWithRetry = async (retryCount = 0) => {
-      try {
-        if (process.env.SENDGRID_API_KEY) {
-          await sgMail.send({
-            to: process.env.NOTIFY_EMAIL,
-            from: process.env.GMAIL_FROM || 'noreply@hospiceconnect.com',
-            subject,
-            text: plainText,
-            html,
-          });
-          console.log('✅ Email sent via SendGrid');
-        } else if (mailTransporter) {
-          // fallback to Gmail SMTP if configured
-          await mailTransporter.sendMail({
-            from: process.env.GMAIL_FROM || process.env.GMAIL_USER,
-            to: process.env.NOTIFY_EMAIL,
-            subject,
-            text: plainText,
-            html,
-          });
-        } else {
-          throw new Error('Email service not configured. Set SENDGRID_API_KEY or GMAIL credentials.');
-        }
-        
+    // Prepare email content
+    const recipient = process.env.NOTIFY_EMAIL || process.env.RECIPIENT_EMAIL;
+    const fromEmail = process.env.SENDGRID_FROM_EMAIL;
 
-        const recipient = process.env.NOTIFY_EMAIL || process.env.RECIPIENT_EMAIL;
-        if (!recipient) throw new Error('No recipient configured. Set NOTIFY_EMAIL or RECIPIENT_EMAIL.');
-
-        const submissionId = result.rows[0].id;
-        const subject = `New HospiceConnect submission #${submissionId}`;
-
-        const plainText = [
-          `New submission received (ID: ${submissionId})`,
-          '',
-          `Care recipient: ${care_recipient || '-'}`,
-          `Main concern: ${main_concern || '-'}`,
-          `Medical situation: ${medical_situation || '-'}`,
-          `Current care location: ${current_care_location || '-'}`,
-          `Urgency level: ${urgency_level || '-'}`,
-          '',
-          `First name: ${first_name || '-'}`,
-          `Phone: ${phone || '-'}`,
-          `Email: ${email || '-'}`,
-          `Best time to call: ${best_time || '-'}`,
-          '',
-          `Care preference: ${care_preference || '-'}`,
-          `Insurance coverage: ${insurance_coverage || '-'}`,
-          `Special requests: ${special_requests || '-'}`,
-          `Agreed to terms: ${terms_consent ? 'Yes' : 'No'}`,
-        ].join('\n');
-
-        const html = `
-          <h2>New submission received (ID: ${submissionId})</h2>
-          <h3>Situation</h3>
-          <ul>
-            <li><strong>Care recipient:</strong> ${care_recipient || '-'}</li>
-            <li><strong>Main concern:</strong> ${main_concern || '-'}</li>
-            <li><strong>Medical situation:</strong> ${medical_situation || '-'}</li>
-            <li><strong>Current care location:</strong> ${current_care_location || '-'}</li>
-            <li><strong>Urgency level:</strong> ${urgency_level || '-'}</li>
-          </ul>
-          <h3>Contact</h3>
-          <ul>
-            <li><strong>First name:</strong> ${first_name || '-'}</li>
-            <li><strong>Phone:</strong> ${phone || '-'}</li>
-            <li><strong>Email:</strong> ${email || '-'}</li>
-            <li><strong>Best time to call:</strong> ${best_time || '-'}</li>
-          </ul>
-          <h3>Preferences</h3>
-          <ul>
-            <li><strong>Care preference:</strong> ${care_preference || '-'}</li>
-            <li><strong>Insurance coverage:</strong> ${insurance_coverage || '-'}</li>
-            <li><strong>Special requests:</strong> ${special_requests || '-'}</li>
-            <li><strong>Agreed to terms:</strong> ${terms_consent ? 'Yes' : 'No'}</li>
-          </ul>
-        `;
-
-        // Add timeout to email sending
-        const emailPromise = mailTransporter.sendMail({
-          from: process.env.GMAIL_FROM || process.env.GMAIL_USER,
-          to: recipient,
-          subject,
-          text: plainText,
-          html,
-        });
-
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Email sending timeout after 30 seconds')), 30000);
-        });
-
-        await Promise.race([emailPromise, timeoutPromise]);
-        return true;
-      } catch (mailErr) {
-        console.error(`Email attempt ${retryCount + 1} failed:`, mailErr?.message || String(mailErr));
-        
-        // Retry logic for connection timeouts
-        if (retryCount < 2 && (mailErr?.code === 'ETIMEDOUT' || mailErr?.message?.includes('timeout'))) {
-          console.log(`Retrying email send in 2 seconds... (attempt ${retryCount + 2})`);
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          return sendEmailWithRetry(retryCount + 1);
-        }
-        
-        throw mailErr;
-      }
-    };
-
-    try {
-<<<<<<< HEAD
-      emailSent = await sendEmailWithRetry();
-      if (emailSent) {
-        console.log('Email notification sent successfully');
-      }
-=======
-      if (!emailConfigured) throw new Error('Email service not configured. Set SENDGRID_API_KEY.');
-
-      const recipient = process.env.NOTIFY_EMAIL || process.env.RECIPIENT_EMAIL;
-      if (!recipient) throw new Error('No recipient configured. Set NOTIFY_EMAIL or RECIPIENT_EMAIL.');
-
-      const fromEmail = process.env.SENDGRID_FROM_EMAIL;
-      if (!fromEmail) throw new Error('No sender email configured. Set SENDGRID_FROM_EMAIL.');
-
-      const submissionId = result.rows[0].id;
+    if (!emailConfigured) {
+      console.warn('⚠️ Email service not configured. Skipping email notification.');
+    } else if (!recipient || !fromEmail) {
+      console.warn('⚠️ Email recipient or sender not configured.');
+    } else {
       const subject = `New HospiceConnect submission #${submissionId}`;
-
       const plainText = [
         `New submission received (ID: ${submissionId})`,
         '',
@@ -327,28 +137,17 @@ app.post('/api/submissions', async (req, res) => {
         </ul>
       `;
 
-      const msg = {
-        to: recipient,
-        from: fromEmail,
-        subject,
-        text: plainText,
-        html,
-      };
-
-      await sgMail.send(msg);
-      emailSent = true;
-      console.log(`✅ Email notification sent to ${recipient}`);
->>>>>>> 334879f10285bd09eddb04993fdba4d2c283a779
-    } catch (mailErr) {
-      emailError = mailErr?.message || String(mailErr);
-      console.error('Error sending email notification after retries:', mailErr);
+      try {
+        await sgMail.send({ to: recipient, from: fromEmail, subject, text: plainText, html });
+        console.log(`✅ Email notification sent to ${recipient}`);
+      } catch (err) {
+        console.error('❌ Error sending email:', err.message || err);
+      }
     }
 
     res.status(201).json({
       message: 'Submission saved successfully',
-      id: result.rows[0].id,
-      emailSent,
-      ...(emailError ? { emailError } : {}),
+      id: submissionId,
     });
   } catch (error) {
     console.error('Error saving submission:', error);
@@ -356,7 +155,7 @@ app.post('/api/submissions', async (req, res) => {
   }
 });
 
-// API endpoint to get all submissions (for admin)
+// Admin endpoint to get all submissions
 app.get('/api/admin/submissions', async (req, res) => {
   try {
     const query = 'SELECT * FROM submissions ORDER BY submitted_at DESC';
@@ -376,48 +175,10 @@ app.get('/api/debug/email', async (req, res) => {
     }
 
     const recipient = process.env.NOTIFY_EMAIL || process.env.RECIPIENT_EMAIL;
-    if (!recipient) {
-      return res.status(400).json({ ok: false, error: 'No recipient configured. Set NOTIFY_EMAIL or RECIPIENT_EMAIL.' });
-    }
-
-<<<<<<< HEAD
-    // Test with timeout and retry logic
-    const testEmail = async (retryCount = 0) => {
-      try {
-        await mailTransporter.verify();
-        
-        const emailPromise = mailTransporter.sendMail({
-          from: process.env.GMAIL_FROM || process.env.GMAIL_USER,
-          to: recipient,
-          subject: 'HospiceConnect debug email',
-          text: 'This is a test email to verify SMTP configuration.',
-          html: '<p>This is a test email to verify SMTP configuration.</p>'
-        });
-
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Email sending timeout after 30 seconds')), 30000);
-        });
-
-        await Promise.race([emailPromise, timeoutPromise]);
-        return true;
-      } catch (err) {
-        console.error(`Debug email attempt ${retryCount + 1} failed:`, err?.message || String(err));
-        
-        if (retryCount < 2 && (err?.code === 'ETIMEDOUT' || err?.message?.includes('timeout'))) {
-          console.log(`Retrying debug email in 2 seconds... (attempt ${retryCount + 2})`);
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          return testEmail(retryCount + 1);
-        }
-        
-        throw err;
-      }
-    };
-
-    await testEmail();
-=======
     const fromEmail = process.env.SENDGRID_FROM_EMAIL;
-    if (!fromEmail) {
-      return res.status(400).json({ ok: false, error: 'No sender email configured. Set SENDGRID_FROM_EMAIL.' });
+
+    if (!recipient || !fromEmail) {
+      return res.status(400).json({ ok: false, error: 'Recipient or sender email not configured.' });
     }
 
     const msg = {
@@ -425,15 +186,14 @@ app.get('/api/debug/email', async (req, res) => {
       from: fromEmail,
       subject: 'HospiceConnect debug email',
       text: 'This is a test email to verify SendGrid configuration.',
-      html: '<p>This is a test email to verify SendGrid configuration.</p>'
+      html: '<p>This is a test email to verify SendGrid configuration.</p>',
     };
 
     await sgMail.send(msg);
->>>>>>> 334879f10285bd09eddb04993fdba4d2c283a779
-    res.json({ ok: true, message: 'Debug email sent successfully' });
+    res.json({ ok: true, message: '✅ Debug email sent successfully' });
   } catch (err) {
     console.error('Debug email error:', err);
-    res.status(500).json({ ok: false, error: err?.message || String(err) });
+    res.status(500).json({ ok: false, error: err.message || String(err) });
   }
 });
 
