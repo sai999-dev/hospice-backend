@@ -2,7 +2,6 @@ const sgMail = require('@sendgrid/mail');
 const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
-const sgMail = require('@sendgrid/mail');
 require('dotenv').config();
 
 if (process.env.SENDGRID_API_KEY) {
