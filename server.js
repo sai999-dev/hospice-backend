@@ -2,7 +2,7 @@ const sgMail = require('@sendgrid/mail');
 const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
-const nodemailer = require('nodemailer');
+const sgMail = require('@sendgrid/mail');
 require('dotenv').config();
 
 if (process.env.SENDGRID_API_KEY) {
@@ -36,6 +36,7 @@ const pool = new Pool(
       }
 );
 
+<<<<<<< HEAD
 // Email transporter (Gmail via SMTP - optimized for cloud deployment)
 let mailTransporter = null;
 if (process.env.GMAIL_USER && process.env.GMAIL_PASS) {
@@ -100,6 +101,17 @@ if (process.env.GMAIL_USER && process.env.GMAIL_PASS) {
   };
 
   verifyConnection();
+=======
+// Email configuration (SendGrid API - works on Render, no SMTP blocking!)
+let emailConfigured = false;
+if (process.env.SENDGRID_API_KEY) {
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+  emailConfigured = true;
+  console.log('✅ SendGrid email service configured');
+} else {
+  console.warn('⚠️  SENDGRID_API_KEY not set - emails will not be sent');
+  console.warn('   Get a free SendGrid key at: https://signup.sendgrid.com/');
+>>>>>>> 334879f10285bd09eddb04993fdba4d2c283a779
 }
 
 // Test database connection
@@ -253,10 +265,81 @@ app.post('/api/submissions', async (req, res) => {
     };
 
     try {
+<<<<<<< HEAD
       emailSent = await sendEmailWithRetry();
       if (emailSent) {
         console.log('Email notification sent successfully');
       }
+=======
+      if (!emailConfigured) throw new Error('Email service not configured. Set SENDGRID_API_KEY.');
+
+      const recipient = process.env.NOTIFY_EMAIL || process.env.RECIPIENT_EMAIL;
+      if (!recipient) throw new Error('No recipient configured. Set NOTIFY_EMAIL or RECIPIENT_EMAIL.');
+
+      const fromEmail = process.env.SENDGRID_FROM_EMAIL;
+      if (!fromEmail) throw new Error('No sender email configured. Set SENDGRID_FROM_EMAIL.');
+
+      const submissionId = result.rows[0].id;
+      const subject = `New HospiceConnect submission #${submissionId}`;
+
+      const plainText = [
+        `New submission received (ID: ${submissionId})`,
+        '',
+        `Care recipient: ${care_recipient || '-'}`,
+        `Main concern: ${main_concern || '-'}`,
+        `Medical situation: ${medical_situation || '-'}`,
+        `Current care location: ${current_care_location || '-'}`,
+        `Urgency level: ${urgency_level || '-'}`,
+        '',
+        `First name: ${first_name || '-'}`,
+        `Phone: ${phone || '-'}`,
+        `Email: ${email || '-'}`,
+        `Best time to call: ${best_time || '-'}`,
+        '',
+        `Care preference: ${care_preference || '-'}`,
+        `Insurance coverage: ${insurance_coverage || '-'}`,
+        `Special requests: ${special_requests || '-'}`,
+        `Agreed to terms: ${terms_consent ? 'Yes' : 'No'}`,
+      ].join('\n');
+
+      const html = `
+        <h2>New submission received (ID: ${submissionId})</h2>
+        <h3>Situation</h3>
+        <ul>
+          <li><strong>Care recipient:</strong> ${care_recipient || '-'}</li>
+          <li><strong>Main concern:</strong> ${main_concern || '-'}</li>
+          <li><strong>Medical situation:</strong> ${medical_situation || '-'}</li>
+          <li><strong>Current care location:</strong> ${current_care_location || '-'}</li>
+          <li><strong>Urgency level:</strong> ${urgency_level || '-'}</li>
+        </ul>
+        <h3>Contact</h3>
+        <ul>
+          <li><strong>First name:</strong> ${first_name || '-'}</li>
+          <li><strong>Phone:</strong> ${phone || '-'}</li>
+          <li><strong>Email:</strong> ${email || '-'}</li>
+          <li><strong>Best time to call:</strong> ${best_time || '-'}</li>
+        </ul>
+        <h3>Preferences</h3>
+        <ul>
+          <li><strong>Care preference:</strong> ${care_preference || '-'}</li>
+          <li><strong>Insurance coverage:</strong> ${insurance_coverage || '-'}</li>
+          <li><strong>Special requests:</strong> ${special_requests || '-'}</li>
+          <li><strong>Agreed to terms:</strong> ${terms_consent ? 'Yes' : 'No'}</li>
+        </ul>
+      `;
+
+      const msg = {
+        to: recipient,
+        from: fromEmail,
+        subject,
+        text: plainText,
+        html,
+      };
+
+      await sgMail.send(msg);
+      emailSent = true;
+      console.log(`✅ Email notification sent to ${recipient}`);
+>>>>>>> 334879f10285bd09eddb04993fdba4d2c283a779
     } catch (mailErr) {
       emailError = mailErr?.message || String(mailErr);
       console.error('Error sending email notification after retries:', mailErr);
@@ -289,8 +372,8 @@ app.get('/api/admin/submissions', async (req, res) => {
 // Debug endpoint to test email sending
 app.get('/api/debug/email', async (req, res) => {
   try {
-    if (!mailTransporter) {
-      return res.status(400).json({ ok: false, error: 'Email transporter not configured. Set GMAIL_USER and GMAIL_PASS.' });
+    if (!emailConfigured) {
+      return res.status(400).json({ ok: false, error: 'Email service not configured. Set SENDGRID_API_KEY.' });
     }
 
     const recipient = process.env.NOTIFY_EMAIL || process.env.RECIPIENT_EMAIL;
@@ -298,6 +381,7 @@ app.get('/api/debug/email', async (req, res) => {
       return res.status(400).json({ ok: false, error: 'No recipient configured. Set NOTIFY_EMAIL or RECIPIENT_EMAIL.' });
     }
 
+<<<<<<< HEAD
     // Test with timeout and retry logic
     const testEmail = async (retryCount = 0) => {
       try {
@@ -331,6 +415,22 @@ app.get('/api/debug/email', async (req, res) => {
     };
 
     await testEmail();
+=======
+    const fromEmail = process.env.SENDGRID_FROM_EMAIL;
+    if (!fromEmail) {
+      return res.status(400).json({ ok: false, error: 'No sender email configured. Set SENDGRID_FROM_EMAIL.' });
+    }
+
+    const msg = {
+      to: recipient,
+      from: fromEmail,
+      subject: 'HospiceConnect debug email',
+      text: 'This is a test email to verify SendGrid configuration.',
+      html: '<p>This is a test email to verify SendGrid configuration.</p>'
+    };
+
+    await sgMail.send(msg);
+>>>>>>> 334879f10285bd09eddb04993fdba4d2c283a779
     res.json({ ok: true, message: 'Debug email sent successfully' });
   } catch (err) {
     console.error('Debug email error:', err);
